@@ -47,6 +47,7 @@ import {
 } from 'firebase/auth';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
+import { Toaster, toast } from 'sonner';
 
 import { auth } from './lib/firebase';
 import { useAuth, AuthProvider } from './lib/AuthContext';
@@ -564,6 +565,7 @@ function StatCard({ title, amount, icon: Icon, trend, color }: { title: string, 
 }
 
 function ExpenseModal({ isOpen, onClose, onSave, initialData }: { isOpen: boolean, onClose: () => void, onSave: (data: any) => void, initialData?: any }) {
+  const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     amount: '',
@@ -571,6 +573,15 @@ function ExpenseModal({ isOpen, onClose, onSave, initialData }: { isOpen: boolea
     type: 'expense',
     date: format(new Date(), 'yyyy-MM-dd')
   });
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await onSave({ ...formData, amount: parseFloat(formData.amount), date: new Date(formData.date).toISOString() });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (initialData) {
@@ -671,10 +682,11 @@ function ExpenseModal({ isOpen, onClose, onSave, initialData }: { isOpen: boolea
           </div>
 
           <button 
-            onClick={() => onSave({ ...formData, amount: parseFloat(formData.amount), date: new Date(formData.date).toISOString() })}
-            className="w-full bg-[#5A5A40] text-white rounded-full py-5 font-serif text-lg hover:bg-[#4a4a35] transition-colors mt-4"
+            onClick={handleSave}
+            disabled={isSaving}
+            className="w-full bg-[#5A5A40] text-white rounded-full py-5 font-serif text-lg hover:bg-[#4a4a35] transition-colors mt-4 disabled:opacity-50"
           >
-            {initialData ? 'Update' : 'Save'} Transaction
+            {isSaving ? 'Saving...' : initialData ? 'Update' : 'Save'} Transaction
           </button>
         </div>
       </motion.div>
@@ -710,13 +722,22 @@ function VoiceInput({ onParsed }: { onParsed: (data: any) => void }) {
     setLoading(true);
     try {
       const parsed = await geminiService.parseVoiceInput(text);
-      if (parsed) onParsed(parsed);
+      if (parsed) onParsed([parsed]);
     } catch (error) {
       console.error("Parsing failed", error);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (transcript) {
+      const timer = setTimeout(() => {
+        setTranscript('');
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [transcript]);
 
   return (
     <div className="relative">
@@ -730,15 +751,18 @@ function VoiceInput({ onParsed }: { onParsed: (data: any) => void }) {
       >
         {loading ? <Loader2 className="text-white animate-spin" /> : <Mic className="text-white w-6 h-6" />}
       </button>
-      {transcript && (
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="absolute bottom-full mb-4 right-0 w-64 bg-white p-4 rounded-2xl shadow-xl border border-black/5 text-sm font-serif italic"
-        >
-          "{transcript}"
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {transcript && (
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="absolute bottom-full mb-4 right-0 w-64 bg-white p-4 rounded-2xl shadow-xl border border-black/5 text-sm font-serif italic"
+          >
+            "{transcript}"
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -787,9 +811,9 @@ function CameraScanner({ onParsed, onClose }: { onParsed: (data: any) => void, o
         const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
         setLoading(true);
         try {
-          const parsed = await geminiService.parseReceipt(base64, 'image/jpeg');
-          if (parsed) {
-            onParsed({ ...parsed, type: 'expense' });
+          const parsed = await geminiService.parseDocument(base64, 'image/jpeg');
+          if (parsed && parsed.length > 0) {
+            onParsed(parsed);
             onClose();
           }
         } catch (error) {
@@ -870,13 +894,17 @@ function FileUpload({ onParsed }: { onParsed: (data: any) => void }) {
 
     setLoading(true);
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64 = (reader.result as string).split(',')[1];
-        const parsed = await geminiService.parseReceipt(base64, file.type);
-        if (parsed) onParsed({ ...parsed, type: 'expense' });
-      };
-      reader.readAsDataURL(file);
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const parsed = await geminiService.parseDocument(base64, file.type);
+      if (parsed && parsed.length > 0) {
+        onParsed(parsed);
+      }
     } catch (error) {
       console.error("Receipt parsing failed", error);
     } finally {
@@ -886,7 +914,10 @@ function FileUpload({ onParsed }: { onParsed: (data: any) => void }) {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop, 
-    accept: { 'image/*': [] },
+    accept: { 
+      'image/*': [],
+      'application/pdf': []
+    },
     multiple: false
   });
 
@@ -917,6 +948,7 @@ function Dashboard({ expenses, profile, onSaveBudget }: { expenses: Expense[], p
 
   const totalIncome = filteredExpenses.filter(e => e.type === 'income').reduce((acc, curr) => acc + curr.amount, 0);
   const totalExpense = filteredExpenses.filter(e => e.type === 'expense').reduce((acc, curr) => acc + curr.amount, 0);
+  const allTimeTotalExpense = expenses.filter(e => e.type === 'expense').reduce((acc, curr) => acc + curr.amount, 0);
   const balance = totalIncome - totalExpense;
 
   const budgetProgress = profile?.monthlyBudget ? (totalExpense / profile.monthlyBudget) * 100 : 0;
@@ -974,10 +1006,11 @@ function Dashboard({ expenses, profile, onSaveBudget }: { expenses: Expense[], p
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
         <StatCard title="Total Balance" amount={balance} icon={Wallet} color="bg-[#5A5A40]" />
         <StatCard title="Total Income" amount={totalIncome} icon={TrendingUp} color="bg-emerald-500" />
-        <StatCard title="Total Expenses" amount={totalExpense} icon={TrendingDown} color="bg-rose-500" />
+        <StatCard title="Monthly Expenses" amount={totalExpense} icon={TrendingDown} color="bg-rose-500" />
+        <StatCard title="All-Time Expenses" amount={allTimeTotalExpense} icon={TrendingDown} color="bg-rose-900" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -1377,7 +1410,7 @@ function AppContent() {
   }, [user]);
 
   const handleSaveExpense = async (data: any) => {
-    if (editingExpense) {
+    if (editingExpense && editingExpense.id) {
       await expenseService.updateExpense(editingExpense.id, data);
     } else {
       await expenseService.addExpense({ ...data, uid: user!.uid });
@@ -1417,11 +1450,27 @@ function AppContent() {
     }
   };
 
-  const handleParsedInput = (data: any) => {
-    setEditingExpense(null);
-    setIsModalOpen(true);
-    // Pre-fill form with parsed data
-    setEditingExpense({ id: '', ...data, uid: user!.uid });
+  const handleParsedInput = async (data: any[]) => {
+    if (data.length === 1) {
+      setEditingExpense(null);
+      setIsModalOpen(true);
+      // Pre-fill form with parsed data
+      setEditingExpense({ id: '', ...data[0], uid: user!.uid });
+      toast.success("Transaction recognized!");
+    } else if (data.length > 1) {
+      // For multiple transactions (e.g. from a statement), add them all
+      const loadingToast = toast.loading(`Adding ${data.length} transactions...`);
+      try {
+        const promises = data.map(item => 
+          expenseService.addExpense({ ...item, uid: user!.uid })
+        );
+        await Promise.all(promises);
+        toast.success(`Successfully added ${data.length} transactions from statement`, { id: loadingToast });
+      } catch (error) {
+        console.error("Error adding batch transactions:", error);
+        toast.error("Failed to add some transactions", { id: loadingToast });
+      }
+    }
   };
 
   if (!user) return <Login />;
@@ -1557,6 +1606,7 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
+      <Toaster position="top-center" richColors />
       <AppContent />
     </AuthProvider>
   );
