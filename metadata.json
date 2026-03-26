@@ -1,0 +1,5 @@
+{
+  "name": "FinTrack - Personal Financial Tracker",
+  "description": "A smart financial tracker with voice recognition, receipt parsing, and real-time expense management.",
+  "requestFramePermissions": ["microphone", "camera"]
+}

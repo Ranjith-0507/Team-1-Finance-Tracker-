@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "user": {
+      "title": "User Profile",
+      "description": "Stores user-specific financial settings and profile information.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique identifier for the user." },
+        "email": { "type": "string", "format": "email", "description": "User's email address." },
+        "displayName": { "type": "string", "description": "User's display name." },
+        "initialBalance": { "type": "number", "description": "Starting balance for the user." }
+      },
+      "required": ["uid", "email"]
+    },
+    "expense": {
+      "title": "Expense Record",
+      "description": "Represents a single financial transaction (expense or income).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The user who owns this transaction." },
+        "title": { "type": "string", "description": "Description of the transaction." },
+        "amount": { "type": "number", "description": "The monetary value of the transaction." },
+        "category": { "type": "string", "description": "The category (e.g., Food, Travel, Bills)." },
+        "date": { "type": "string", "format": "date-time", "description": "When the transaction occurred." },
+        "type": { "type": "string", "enum": ["expense", "income"], "description": "Whether it's an expense or income." }
+      },
+      "required": ["uid", "title", "amount", "category", "date", "type"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "User profile document."
+    },
+    "/expenses/{expenseId}": {
+      "schema": "expense",
+      "description": "Individual expense or income records."
+    }
+  }
+}
