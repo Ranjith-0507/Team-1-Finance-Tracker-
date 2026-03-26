@@ -64,18 +64,30 @@ function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [role, setRole] = useState<'admin' | 'driver' | 'customer'>('customer');
   const [secretKey, setSecretKey] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<React.ReactNode | null>(null);
 
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError(null);
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      
+      // Check if user profile exists, if not create one
+      const existingProfile = await expenseService.getUserProfile(result.user.uid);
+      if (!existingProfile) {
+        await expenseService.saveUserProfile({
+          uid: result.user.uid,
+          email: result.user.email!,
+          displayName: result.user.displayName || '',
+          role: 'customer', // Default role for Google login
+          initialBalance: 0
+        });
+      }
     } catch (error: any) {
       if (error.code === 'auth/popup-closed-by-user') {
-        // Just ignore if user closes the popup
         return;
       }
       console.error("Login failed", error);
@@ -91,23 +103,25 @@ function Login() {
     setError(null);
     try {
       if (isSignup) {
-        if (secretKey !== '1234567890') {
-          setError("Invalid Secret Key. Please contact the administrator.");
+        // Only require secret key for Admin role
+        if (role === 'admin' && secretKey !== 'admin123') {
+          setError("Invalid Admin Secret Key. Please contact the system owner.");
           setLoading(false);
           return;
         }
+        
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         if (displayName) {
           await updateProfile(userCredential.user, { displayName });
-          // Force a reload of the user to get the new display name
           await userCredential.user.reload();
         }
         
-        // Save user profile to Firestore
+        // Save user profile to Firestore with the selected role
         await expenseService.saveUserProfile({
           uid: userCredential.user.uid,
           email: userCredential.user.email!,
           displayName: displayName || userCredential.user.displayName || '',
+          role: role,
           initialBalance: 0
         });
       } else {
@@ -119,7 +133,21 @@ function Login() {
       if (error.code === 'auth/email-already-in-use') message = "This email is already registered.";
       if (error.code === 'auth/invalid-credential') message = "Invalid email or password.";
       if (error.code === 'auth/weak-password') message = "Password should be at least 6 characters.";
-      if (error.code === 'auth/operation-not-allowed') message = "Authentication provider not enabled. Please try again in a few moments or contact support.";
+      if (error.code === 'auth/operation-not-allowed') {
+        message = (
+          <span>
+            Email/Password login is not enabled. 
+            <a 
+              href="https://console.firebase.google.com/project/_/authentication/providers" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="underline font-bold ml-1 hover:text-[#4a4a35]"
+            >
+              Enable it here
+            </a>
+          </span>
+        );
+      }
       setError(message);
     } finally {
       setLoading(false);
@@ -157,17 +185,34 @@ function Login() {
                   placeholder="John Doe"
                 />
               </div>
-              <div>
-                <label className="block text-[10px] font-serif text-[#1a1a1a]/40 mb-1 uppercase tracking-widest ml-4">Secret Key</label>
-                <input 
-                  type="password" 
-                  required
-                  value={secretKey}
-                  onChange={(e) => setSecretKey(e.target.value)}
-                  className="w-full bg-[#f5f5f0] border-none rounded-2xl px-6 py-3 focus:ring-2 focus:ring-[#5A5A40]/20 font-serif text-sm"
-                  placeholder="Enter secret key"
-                />
+              <div className="relative">
+                <label className="block text-[10px] font-serif text-[#1a1a1a]/40 mb-1 uppercase tracking-widest ml-4">Account Role</label>
+                <select 
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as any)}
+                  className="w-full bg-[#f5f5f0] border-none rounded-2xl px-6 py-3 focus:ring-2 focus:ring-[#5A5A40]/20 font-serif text-sm appearance-none cursor-pointer"
+                >
+                  <option value="customer">Customer</option>
+                  <option value="driver">Driver</option>
+                  <option value="admin">Administrator</option>
+                </select>
+                <div className="absolute right-4 top-[34px] pointer-events-none text-[#1a1a1a]/40">
+                  <ChevronRight className="w-4 h-4 rotate-90" />
+                </div>
               </div>
+              {role === 'admin' && (
+                <div>
+                  <label className="block text-[10px] font-serif text-[#1a1a1a]/40 mb-1 uppercase tracking-widest ml-4">Admin Secret Key</label>
+                  <input 
+                    type="password" 
+                    required
+                    value={secretKey}
+                    onChange={(e) => setSecretKey(e.target.value)}
+                    className="w-full bg-[#f5f5f0] border-none rounded-2xl px-6 py-3 focus:ring-2 focus:ring-[#5A5A40]/20 font-serif text-sm"
+                    placeholder="Enter admin key"
+                  />
+                </div>
+              )}
             </>
           )}
           <div>
@@ -260,7 +305,7 @@ function Login() {
 }
 
 function Sidebar({ activeTab, setActiveTab, isOpen, onClose }: { activeTab: string, setActiveTab: (tab: string) => void, isOpen?: boolean, onClose?: () => void }) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -318,7 +363,14 @@ function Sidebar({ activeTab, setActiveTab, isOpen, onClose }: { activeTab: stri
           />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-[#1a1a1a] truncate">{user?.displayName}</p>
-            <p className="text-xs text-[#1a1a1a]/40 truncate">{user?.email}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-[#1a1a1a]/40 truncate">{user?.email}</p>
+              {profile?.role && (
+                <span className="text-[8px] px-1.5 py-0.5 bg-[#5A5A40]/10 text-[#5A5A40] rounded-full uppercase font-bold tracking-tighter">
+                  {profile.role}
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <button 
@@ -1308,10 +1360,9 @@ function Reports({ expenses }: { expenses: Expense[] }) {
 }
 
 function AppContent() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -1321,7 +1372,6 @@ function AppContent() {
   useEffect(() => {
     if (user) {
       const unsubscribe = expenseService.subscribeToExpenses(user.uid, setExpenses);
-      expenseService.getUserProfile(user.uid).then(setProfile);
       return unsubscribe;
     }
   }, [user]);
@@ -1343,12 +1393,12 @@ function AppContent() {
           uid: user.uid,
           email: user.email || '',
           displayName: user.displayName || '',
+          role: profile?.role || 'customer',
           initialBalance: profile?.initialBalance || 0,
           ...profile,
           monthlyBudget: budget 
         };
         await expenseService.saveUserProfile(updatedProfile);
-        setProfile(updatedProfile);
       } catch (error) {
         console.error("Error saving budget:", error);
         throw error;

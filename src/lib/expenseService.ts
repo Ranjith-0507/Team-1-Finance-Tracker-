@@ -29,6 +29,7 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName?: string;
+  role: 'admin' | 'driver' | 'customer';
   initialBalance: number;
   monthlyBudget?: number;
   categoryBudgets?: Record<string, number>;
@@ -98,6 +99,15 @@ export const expenseService = {
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
     }
+  },
+
+  subscribeToProfile(uid: string, callback: (profile: UserProfile | null) => void) {
+    const path = `users/${uid}`;
+    return onSnapshot(doc(db, path), (snapshot) => {
+      callback(snapshot.exists() ? (snapshot.data() as UserProfile) : null);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
+    });
   },
 
   subscribeToExpenses(uid: string, callback: (expenses: Expense[]) => void) {
