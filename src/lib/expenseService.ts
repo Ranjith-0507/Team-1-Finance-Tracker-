@@ -29,6 +29,8 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName?: string;
+  photoURL?: string;
+  gender?: 'male' | 'female' | 'other';
   role: 'admin' | 'driver' | 'customer';
   initialBalance: number;
   monthlyBudget?: number;
@@ -101,6 +103,15 @@ export const expenseService = {
     }
   },
 
+  async updateUserProfile(uid: string, profile: Partial<UserProfile>) {
+    const path = `users/${uid}`;
+    try {
+      await updateDoc(doc(db, path), profile);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
+  },
+
   subscribeToProfile(uid: string, callback: (profile: UserProfile | null) => void) {
     const path = `users/${uid}`;
     return onSnapshot(doc(db, path), (snapshot) => {
@@ -124,6 +135,36 @@ export const expenseService = {
         ...doc.data()
       })) as Expense[];
       callback(expenses);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+  },
+
+  subscribeToAllExpenses(callback: (expenses: Expense[]) => void) {
+    const path = 'expenses';
+    const q = query(
+      collection(db, path),
+      orderBy('date', 'desc')
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      const expenses = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Expense[];
+      callback(expenses);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+  },
+
+  subscribeToAllUsers(callback: (users: UserProfile[]) => void) {
+    const path = 'users';
+    return onSnapshot(collection(db, path), (snapshot) => {
+      const users = snapshot.docs.map(doc => ({
+        ...doc.data()
+      })) as UserProfile[];
+      callback(users);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, path);
     });

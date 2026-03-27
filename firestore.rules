@@ -56,33 +56,43 @@ service cloud.firestore {
     // Domain Validators
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'email', 'role']) &&
+             data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'initialBalance', 'photoURL', 'gender', 'monthlyBudget']) &&
              data.uid == request.auth.uid &&
              data.role in ['admin', 'driver', 'customer'] &&
-             isValidEmail(data.email);
+             isValidEmail(data.email) &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() < 100)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() < 500)) &&
+             (!('gender' in data) || (data.gender in ['male', 'female', 'other'])) &&
+             (!('initialBalance' in data) || (data.initialBalance is number)) &&
+             (!('monthlyBudget' in data) || (data.monthlyBudget is number && data.monthlyBudget >= 0));
     }
 
     function isValidExpense(data) {
       return data.keys().hasAll(['uid', 'title', 'amount', 'category', 'date', 'type']) &&
+             data.keys().hasOnly(['uid', 'title', 'amount', 'category', 'date', 'type', 'id']) &&
              data.uid == request.auth.uid &&
              data.amount is number && data.amount > 0 &&
              data.type in ['expense', 'income'] &&
              isValidDateString(data.date) &&
              data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
-             data.category is string && data.category.size() > 0;
+             data.category is string && data.category.size() > 0 && data.category.size() < 50;
     }
 
     // Rules
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role != 'admin' || isAdmin());
-      allow update: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
+                    (request.resource.data.role == resource.data.role || isAdmin()) &&
+                    request.resource.data.uid == resource.data.uid;
       allow delete: if false;
     }
 
     match /expenses/{expenseId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidExpense(request.resource.data);
-      allow update: if isDocOwner() && request.resource.data.uid == request.auth.uid && isValidExpense(request.resource.data);
+      allow update: if isDocOwner() && request.resource.data.uid == request.auth.uid && isValidExpense(request.resource.data) &&
+                    request.resource.data.uid == resource.data.uid;
       allow delete: if isDocOwner() || isAdmin();
     }
   }

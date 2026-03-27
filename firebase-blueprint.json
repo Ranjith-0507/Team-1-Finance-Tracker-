@@ -9,7 +9,10 @@
         "email": { "type": "string", "format": "email", "description": "User's email address." },
         "displayName": { "type": "string", "description": "User's display name." },
         "role": { "type": "string", "enum": ["admin", "driver", "customer"], "description": "User's role in the system." },
-        "initialBalance": { "type": "number", "description": "Starting balance for the user." }
+        "initialBalance": { "type": "number", "description": "Starting balance for the user." },
+        "photoURL": { "type": "string", "description": "User's profile image URL." },
+        "gender": { "type": "string", "enum": ["male", "female", "other"], "description": "User's gender." },
+        "monthlyBudget": { "type": "number", "description": "User's monthly spending limit." }
       },
       "required": ["uid", "email", "role"]
     },

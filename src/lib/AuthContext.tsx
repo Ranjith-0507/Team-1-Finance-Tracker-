@@ -29,7 +29,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (user) {
         // Subscribe to user profile changes
-        profileUnsubscribe = expenseService.subscribeToProfile(user.uid, (userProfile) => {
+        profileUnsubscribe = expenseService.subscribeToProfile(user.uid, async (userProfile) => {
+          // Auto-upgrade specific user to admin
+          if (user.email === 'ranjithkumarmanickam05@gmail.com' && userProfile?.role !== 'admin') {
+            try {
+              await expenseService.saveUserProfile({
+                ...userProfile,
+                uid: user.uid,
+                email: user.email || '',
+                displayName: user.displayName || userProfile?.displayName || '',
+                role: 'admin'
+              });
+            } catch (error) {
+              console.error("Failed to auto-upgrade to admin:", error);
+            }
+          }
           setProfile(userProfile);
           setLoading(false);
         });
